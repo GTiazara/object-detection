@@ -30,6 +30,7 @@ class ModelLoader:
         "transfer": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "transfer-learning/experiment-62/best.pt", "yolov8"),
         # Javvanny flying objects detection model (YOLOv8)
         "flying_objects": ("Javvanny/yolov8m_flying_objects_detection", "yolov8m/weights/best.pt", "yolov8"),
+        "flying_airplane": ("keremberke/yolov8m-plane-detection", "best.pt", "yolov8"),
     }
     
     def __init__(self, models_dir: Optional[str] = None):

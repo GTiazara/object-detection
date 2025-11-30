@@ -40,7 +40,7 @@ poetry.lock
 *.pt
 *.pth
 *.onnx
-
+training/*
 # Data
 data/input/*
 data/output/*

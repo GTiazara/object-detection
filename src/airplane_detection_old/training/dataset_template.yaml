@@ -1,0 +1,43 @@
+# YOLOv8 Dataset Configuration Template
+# 
+# Dataset structure should be:
+#   dataset_dir/
+#     train/
+#       images/
+#         image1.jpg
+#         image2.jpg
+#         ...
+#       labels/
+#         image1.txt
+#         image2.txt
+#         ...
+#     val/
+#       images/
+#         ...
+#       labels/
+#         ...
+#     test/  (optional)
+#       images/
+#         ...
+#       labels/
+#         ...
+
+# Path to dataset root directory
+path: /path/to/your/dataset
+
+# Training images directory (relative to path)
+train: train/images
+
+# Validation images directory (relative to path)
+val: val/images
+
+# Test images directory (optional, relative to path)
+# test: test/images
+
+# Number of classes
+nc: 1
+
+# Class names
+names:
+  0: airplane
+

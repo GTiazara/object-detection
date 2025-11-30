@@ -6,7 +6,6 @@ A Python project for detecting airplanes in satellite imagery using YOLOv8 and Y
 
 - 🛫 Detect airplanes in high-resolution satellite imagery
 - 🚀 Support for multiple YOLO models (YOLOv8n, YOLOv8s, YOLOv8m, YOLOv8l, YOLOv8x, YOLOv9e)
-- 🔧 **MMDetection support** - Use Faster R-CNN, RTMDet, YOLOX models from [OpenMMLab MMDetection](https://github.com/open-mmlab/mmdetection)
 - 📸 Process single images or batches
 - 🎯 Configurable confidence and IoU thresholds
 - 💾 Automatic model downloading and caching
@@ -87,37 +86,9 @@ print(f"Detected {summary['num_detections']} airplanes")
 detector.visualize("path/to/image.jpg", result, "output.jpg")
 ```
 
-#### Using MMDetection Models
-
-```python
-from pathlib import Path
-from airplane_detection.mmdetection_loader import MMDetectionLoader
-from airplane_detection.detector import AirplaneDetector
-
-# Load MMDetection model
-mmdet_loader = MMDetectionLoader()
-model = mmdet_loader.load_model(
-    model_variant="faster_rcnn_r50",  # Options: "faster_rcnn_r50", "rtmdet_s", "yolox_s"
-    class_filter=[4],  # COCO class 4 = airplane
-    device="cuda:0",  # or "cpu"
-)
-
-# Initialize detector (same interface as YOLO)
-detector = AirplaneDetector(model, conf_threshold=0.25)
-
-# Detect airplanes (same workflow as YOLO)
-result = detector.detect("path/to/image.jpg", imgsz=960)
-summary = detector.get_detections_summary(result)
-detector.visualize("path/to/image.jpg", result, "output.jpg")
-```
-
-See `example.py` for complete examples of both YOLO and MMDetection usage.
+See `predict_example.py` for complete examples.
 
 ## Models
-
-The project supports two types of detection models:
-
-### YOLO Models
 
 Pre-trained models from the Efficient-YOLO-RS-Airplane-Detection repository, trained on the HRPlanes dataset. Models are automatically downloaded on first use and cached in `~/.airplane_detection/models/`.
 
@@ -125,17 +96,6 @@ Pre-trained models from the Efficient-YOLO-RS-Airplane-Detection repository, tra
 - **flying_objects**: YOLOv8m model trained on flying objects dataset
 - **training**: Models from training experiments (experiment-57)
 - **transfer**: Models from transfer learning experiments (experiment-62)
-
-### MMDetection Models
-
-Models from [OpenMMLab MMDetection](https://github.com/open-mmlab/mmdetection), pre-trained on COCO dataset with airplane class filtering.
-
-**Available MMDetection Models:**
-- **faster_rcnn_r50**: Faster R-CNN with ResNet50 backbone (accurate but slower)
-- **rtmdet_s**: RTMDet-S (modern, efficient detector)
-- **yolox_s**: YOLOX-S (YOLO variant in MMDetection)
-
-MMDetection models are automatically downloaded from Hugging Face on first use.
 
 ### Model Performance
 
@@ -167,10 +127,9 @@ airplane-detection/
 │   └── airplane_detection/
 │       ├── __init__.py
 │       ├── model_loader.py          # YOLO model loading and downloading
-│       ├── mmdetection_loader.py    # MMDetection model loading
 │       ├── detector.py              # Detection functionality
 │       └── main.py                  # CLI interface
-├── example.py                       # Example scripts for YOLO and MMDetection
+├── predict_example.py               # Example script for YOLO usage
 ├── tests/
 ├── data/
 │   ├── input/                       # Place input images here
@@ -202,7 +161,6 @@ If you use this project or the models, please cite the original research:
 
 - [Efficient-YOLO-RS-Airplane-Detection Repository](https://github.com/RSandAI/Efficient-YOLO-RS-Airplane-Detection)
 - [Ultralytics YOLO Documentation](https://docs.ultralytics.com/)
-- [MMDetection - OpenMMLab Detection Toolbox](https://github.com/open-mmlab/mmdetection)
 - [HRPlanes Dataset](https://zenodo.org/)
 
 ## License

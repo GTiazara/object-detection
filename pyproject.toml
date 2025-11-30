@@ -1,7 +1,7 @@
 [project]
-name = "airplane-detection"
+name = "yolo-detection"
 version = "0.1.0"
-description = "Airplane detection in satellite imagery using YOLOv8/YOLOv9 models"
+description = "YOLO training and prediction for object detection"
 authors = [
     {name = "gaetan.tiazara",email = "gaetan.tiazara@ign.fr"}
 ]
@@ -21,10 +21,12 @@ dependencies = [
     "tqdm>=4.66.0",
     "omegaconf>=2.3.0",
     "openmim>=0.3.9,<0.4.0",
+    "pyyaml (>=6.0.3,<7.0.0)",
+    "albumentations (>=2.0.8,<3.0.0)",
 ]
 
 [tool.poetry]
-packages = [{include = "airplane_detection", from = "src"}]
+packages = [{include = "*", from = "src"}]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

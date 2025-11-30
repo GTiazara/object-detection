@@ -1,4 +1,4 @@
-"""Main detection functionality for airplanes in images."""
+"""Main detection functionality for object detection in images using YOLO models."""
 
 from pathlib import Path
 from typing import List, Union, Optional, Tuple, Any
@@ -16,12 +16,12 @@ except ImportError:
     YOLOV5_AVAILABLE = False
 
 
-class AirplaneDetector:
-    """Detects airplanes in satellite imagery using YOLO models."""
+class Detector:
+    """Detects objects in images using YOLO models."""
     
     def __init__(self, model: Any, conf_threshold: float = 0.25, iou_threshold: float = 0.45):
         """
-        Initialize the airplane detector.
+        Initialize the detector.
         
         Args:
             model: Loaded YOLO model (YOLOv8/YOLOv9 from ultralytics or YOLOv5 from yolov5)
@@ -40,9 +40,7 @@ class AirplaneDetector:
         # Detect if it's YOLOv5 model
         # YOLOv5 models from yolov5 library have render() method but not plot() method
         # Ultralytics models have plot() method but not render() method
-        # MMDetection models are wrapped and have predict() method
         self.is_yolov5 = hasattr(model, 'render') and not hasattr(model, 'plot')
-        self.is_mmdetection = hasattr(model, '__class__') and 'MMDetectionWrapper' in str(type(model))
     
     def detect(
         self,
@@ -53,7 +51,7 @@ class AirplaneDetector:
         show: bool = False,
     ) -> Union[Results, Any]:
         """
-        Detect airplanes in an image.
+        Detect objects in an image.
         
         Args:
             image_path: Path to the input image
@@ -72,26 +70,7 @@ class AirplaneDetector:
         print(f"Processing image: {image_path}")
         
         # Run inference based on model type
-        if self.is_mmdetection:
-            # MMDetection inference
-            results = self.model.predict(
-                source=str(image_path),
-                conf=self.conf_threshold,
-                imgsz=imgsz,
-            )
-            
-            # Print detection summary
-            if results and len(results) > 0:
-                result = results[0]
-                num_detections = len(result.boxes.xyxy) if result.boxes is not None and len(result.boxes.xyxy) > 0 else 0
-                print(f"Detected {num_detections} airplane(s)")
-                
-                if num_detections > 0:
-                    confidences = result.boxes.conf.cpu().numpy()
-                    print(f"Confidence scores: {confidences}")
-            
-            return results[0] if results else None
-        elif self.is_yolov5:
+        if self.is_yolov5:
             # YOLOv5 inference
             self.model.conf = self.conf_threshold
             self.model.iou = self.iou_threshold
@@ -100,7 +79,7 @@ class AirplaneDetector:
             # Print detection summary
             if results is not None:
                 num_detections = len(results.xyxy[0]) if len(results.xyxy) > 0 else 0
-                print(f"Detected {num_detections} airplane(s)")
+                print(f"Detected {num_detections} object(s)")
                 
                 if num_detections > 0:
                     confidences = results.xyxy[0][:, 4].cpu().numpy() if len(results.xyxy[0]) > 0 else []
@@ -123,7 +102,7 @@ class AirplaneDetector:
             if results and len(results) > 0:
                 result = results[0]
                 num_detections = len(result.boxes) if result.boxes is not None else 0
-                print(f"Detected {num_detections} airplane(s)")
+                print(f"Detected {num_detections} object(s)")
                 
                 if num_detections > 0:
                     confidences = result.boxes.conf.cpu().numpy()
@@ -139,7 +118,7 @@ class AirplaneDetector:
         save_dir: Optional[Union[str, Path]] = None,
     ) -> List[Results]:
         """
-        Detect airplanes in multiple images.
+        Detect objects in multiple images.
         
         Args:
             image_paths: List of paths to input images
@@ -172,7 +151,7 @@ class AirplaneDetector:
         
         Args:
             image_path: Path to the original image
-            results: YOLO Results object (YOLOv8/YOLOv9), YOLOv5 results, or MMDetection results
+            results: YOLO Results object (YOLOv8/YOLOv9) or YOLOv5 results
             output_path: Optional path to save the visualized image
         
         Returns:
@@ -183,7 +162,7 @@ class AirplaneDetector:
             annotated_img = results.render()[0]  # Get first image from batch
             annotated_img = cv2.cvtColor(annotated_img, cv2.COLOR_RGB2BGR) if len(annotated_img.shape) == 3 else annotated_img
         else:
-            # Ultralytics YOLO or MMDetection visualization (both use plot() method)
+            # Ultralytics YOLO visualization
             annotated_img = results.plot()
         
         if output_path:
@@ -197,31 +176,12 @@ class AirplaneDetector:
         Get a summary of detections.
         
         Args:
-            results: YOLO Results object (YOLOv8/YOLOv9), YOLOv5 results, or MMDetection results
+            results: YOLO Results object (YOLOv8/YOLOv9) or YOLOv5 results
         
         Returns:
             Dictionary with detection summary
         """
-        if self.is_mmdetection:
-            # MMDetection results format (compatible with Ultralytics format)
-            if results.boxes is None or len(results.boxes.xyxy) == 0:
-                return {
-                    "num_detections": 0,
-                    "boxes": [],
-                    "confidences": [],
-                    "average_confidence": 0.0,
-                }
-            
-            boxes = results.boxes.xyxy.cpu().numpy()
-            confidences = results.boxes.conf.cpu().numpy()
-            
-            return {
-                "num_detections": len(boxes),
-                "boxes": boxes.tolist(),
-                "confidences": confidences.tolist(),
-                "average_confidence": float(np.mean(confidences)) if len(confidences) > 0 else 0.0,
-            }
-        elif self.is_yolov5:
+        if self.is_yolov5:
             # YOLOv5 results format
             if results is None or len(results.xyxy) == 0:
                 return {
@@ -265,6 +225,4 @@ class AirplaneDetector:
                 "confidences": confidences.tolist(),
                 "average_confidence": float(np.mean(confidences)) if len(confidences) > 0 else 0.0,
             }
-
-
 
