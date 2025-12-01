@@ -15,6 +15,9 @@ try:
 except ImportError:
     YOLOV5_AVAILABLE = False
 
+import rasterio
+from rasterio.crs import CRS
+
 
 class Detector:
     """Detects objects in images using YOLO models."""
@@ -166,8 +169,101 @@ class Detector:
             annotated_img = results.plot()
         
         if output_path:
-            cv2.imwrite(str(output_path), annotated_img)
-            print(f"Visualization saved to {output_path}")
+            output_path = Path(output_path)
+            image_path = Path(image_path)
+            
+            # Check if original image is a georeferenced TIF and preserve georeferencing
+            is_geotiff = (
+                image_path.suffix.lower() in ['.tif', '.tiff'] and
+                image_path.exists()
+            )
+            
+            if is_geotiff:
+                try:
+                    # Read georeferencing from original image
+                    with rasterio.open(image_path) as src:
+                        transform = src.transform
+                        original_height = src.height
+                        original_width = src.width
+                        nodata = src.nodata
+                        tags = src.tags().copy()
+                        meta = src.meta.copy()
+                        colorinterp = getattr(src, 'colorinterp', None)
+                        
+                        if transform.is_identity:
+                            raise ValueError("Image does not have a valid georeferencing transform")
+                    
+                    # Set CRS to EPSG:4326
+                    crs = CRS.from_epsg(4326)
+                    
+                    # Get annotated image dimensions and resize if needed
+                    if len(annotated_img.shape) == 3:
+                        annotated_height, annotated_width = annotated_img.shape[:2]
+                    else:
+                        annotated_height, annotated_width = annotated_img.shape
+                    
+                    if annotated_height != original_height or annotated_width != original_width:
+                        annotated_img = cv2.resize(
+                            annotated_img, 
+                            (original_width, original_height), 
+                            interpolation=cv2.INTER_LINEAR
+                        )
+                    
+                    # Convert BGR to RGB for rasterio
+                    if len(annotated_img.shape) == 3 and annotated_img.shape[2] == 3:
+                        annotated_img_rgb = cv2.cvtColor(annotated_img, cv2.COLOR_BGR2RGB)
+                    else:
+                        annotated_img_rgb = annotated_img
+                    
+                    # Prepare for rasterio: (channels, height, width)
+                    if len(annotated_img_rgb.shape) == 2:
+                        annotated_img_rgb = np.expand_dims(annotated_img_rgb, axis=2)
+                    if len(annotated_img_rgb.shape) == 3:
+                        annotated_img_rgb = np.transpose(annotated_img_rgb, (2, 0, 1))
+                    
+                    # Build output profile
+                    output_profile = {
+                        'driver': 'GTiff',
+                        'height': original_height,
+                        'width': original_width,
+                        'count': annotated_img_rgb.shape[0],
+                        'dtype': annotated_img_rgb.dtype,
+                        'crs': crs,
+                        'transform': transform,
+                        'compress': 'lzw',
+                        'tiled': True,
+                    }
+                    
+                    if nodata is not None:
+                        output_profile['nodata'] = nodata
+                    
+                    # Preserve metadata from original
+                    for key in ['photometric', 'interleave', 'blockxsize', 'blockysize']:
+                        if key in meta:
+                            output_profile[key] = meta[key]
+                    
+                    # Write GeoTIFF
+                    with rasterio.open(output_path, 'w', **output_profile) as dst:
+                        dst.write(annotated_img_rgb)
+                        dst.crs = crs
+                        dst.transform = transform
+                        if tags:
+                            dst.update_tags(**tags)
+                        if colorinterp is not None:
+                            try:
+                                dst.colorinterp = colorinterp
+                            except Exception:
+                                pass
+                    
+                    print(f"Visualization saved to {output_path} (georeferenced, CRS: EPSG:4326)")
+                except Exception as e:
+                    print(f"Warning: Could not preserve georeferencing: {e}")
+                    cv2.imwrite(str(output_path), annotated_img)
+                    print(f"Visualization saved to {output_path} (non-georeferenced)")
+            else:
+                # Regular image save (non-georeferenced)
+                cv2.imwrite(str(output_path), annotated_img)
+                print(f"Visualization saved to {output_path}")
         
         return annotated_img
     

@@ -1,0 +1,96 @@
+# Configuration file for prediction/consumer program
+# This file configures the object detection prediction pipeline
+
+# Model configuration
+model:
+  # Path to local model file (overrides model_variant if provided)
+  # Set to null to use model_variant instead
+  local_path: "C:/Users/tiaza/Documents/perso/personal_project/object-detection/training/runs/my_airplane_detection5/weights/best.pt"
+  # Example: "training/runs/my_airplane_detection5/weights/best.pt"
+  
+  # Model variant to use if local_path is null
+  # Options: "training", "training0", "transfer", etc.
+  model_variant: null
+  
+  # Force re-download of model even if it exists
+  force_download: false
+
+# Detection parameters
+detection:
+  # Confidence threshold for detections (0.0 to 1.0)
+  # Lower values = more detections (including less confident ones)
+  # Higher values = fewer but more confident detections
+  confidence_threshold: 0.55
+  
+  # IoU threshold for Non-Maximum Suppression (0.0 to 1.0)
+  # Controls overlap handling between detections
+  iou_threshold: 0.35
+  
+  # Input image size for model inference
+  # Options: 640, 960, 1280
+  # Larger sizes = better accuracy but slower processing
+  image_size: 640
+
+# Paths configuration
+paths:
+  # Input directory for standalone mode (when queue is not used)
+  input_dir: "C:/Users/tiaza/Documents/perso/personal_project/geo-dataset-builder/output"
+  
+  # Output directory for detection results and visualizations
+  output_dir: "data/output"
+  
+  # Supported image file extensions
+  image_extensions:
+    - ".tif"
+    - ".TIF"
+    - ".tiff"
+    - ".TIFF"
+    - ".png"
+    - ".PNG"
+    - ".jpg"
+    - ".JPG"
+    - ".jpeg"
+    - ".JPEG"
+    - ".bmp"
+    - ".BMP"
+    - ".webp"
+    - ".WEBP"
+
+# Queue configuration (for queue-based processing)
+queue:
+  # Path to queue database file
+  # Must match the producer's queue database path
+  db_path: "C:/Users/tiaza/Documents/perso/personal_project/geo-dataset-builder/output_queue.db"
+  
+  # Seconds to wait between queue checks when no items are available
+  poll_interval: 1.0
+  
+  # Maximum number of unprocessed items allowed in queue
+  max_unprocessed: 10
+  
+  # Clean up missing file entries on exit
+  cleanup_on_exit: true
+
+# Output settings
+output:
+  # Save detection results (bounding boxes, labels, etc.)
+  save: false
+  
+  # Save visualization images with bounding boxes drawn
+  save_visualization: true
+  
+  # Delete processed files after successful processing (queue mode only)
+  delete_after_processing: true
+
+# Processing behavior
+processing:
+  # Run in standalone mode (process all images in input_dir)
+  # If false, uses queue-based processing
+  standalone_mode: false
+  
+  # Continue processing on errors (don't stop the consumer)
+  continue_on_error: true
+  
+  # Print detailed detection summaries for each image
+  verbose: true
+
