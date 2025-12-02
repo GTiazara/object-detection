@@ -27,7 +27,7 @@ def example_single_image():
     detector = Detector(model, conf_threshold=0.25)
     
     # Detect airplanes (using all image files from input directory)
-    input_dir = Path("C:/Users/tiaza/Documents/perso/personal_project/object-detection/data/input_test")
+    input_dir = Path("C:/Users/tiaza/Documents/perso/personal_project/object-detection/data/input_test") #Path("C:/Users/tiaza/Documents/perso/personal_project/geo-dataset-builder/output") #Path("C:/Users/tiaza/Documents/perso/personal_project/object-detection/data/input_test")
     
     # Supported image formats
     image_extensions = ["*.tif", "*.TIF", "*.tiff", "*.TIFF", 

@@ -1,9 +1,18 @@
 """Example script for fine-tuning the training0 model on a custom dataset."""
 
+import sys
 from pathlib import Path
+
+# Add project root to path to enable imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 from src.training.trainer import FineTuner
 import albumentations as A
 import cv2
+import torch
+
+
 def main():
     """Example fine-tuning workflow."""
     
@@ -31,6 +40,7 @@ def main():
     # Option A: Use pre-trained model from HuggingFace
     fine_tuner = FineTuner(
         base_model_variant="training0",  # Uses iturslab/Efficient-YOLO-RS-Airplane-Detection
+        # base_model_path="C:/Users/tiaza/Documents/perso/personal_project/object-detection/training/runs/my_airplane_detection5/weights/last.pt"
     )
     
     # Option B: Use local model file
@@ -40,24 +50,32 @@ def main():
     
     # Step 3: Train the model
     print("\nStarting fine-tuning...")
+    
+    # Auto-detect device (CUDA if available, otherwise CPU)
+    if torch.cuda.is_available():
+        device = "cuda"
+        print(f"Using GPU: {torch.cuda.get_device_name(0)}")
+    else:
+        device = "cpu"
+        print("CUDA not available, using CPU")
 
     custom_transforms = [
     A.Blur(blur_limit=7, p=0.3),
-    A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
-    A.CLAHE(clip_limit=4.0, p=0.3),
+    # A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
+    # A.CLAHE(clip_limit=4.0, p=0.3),
     A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.3),
     A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.3),
      A.ChannelShuffle(p=0.3),
-    A.ChromaticAberration(primary_distortion_limit=0.05,secondary_distortion_limit=0.1,mode='green_purple',interpolation=cv2.INTER_LINEAR,p=0.3),
-    A.Dithering(method="error_diffusion",n_colors=2, error_diffusion_algorithm="floyd_steinberg", color_mode="grayscale", p=0.3)]
+    # A.ChromaticAberration(primary_distortion_limit=0.05,secondary_distortion_limit=0.1,mode='green_purple',interpolation=cv2.INTER_LINEAR,p=0.3),
+    A.Dithering(method="error_diffusion",n_colors=250, error_diffusion_algorithm="floyd_steinberg", color_mode="grayscale", p=0.3)]
 
 
     model = fine_tuner.train(
         dataset_yaml=str(dataset_yaml),
-        epochs=100,
+        epochs=200,
         imgsz=640,
         batch=3,
-        device="cuda",  # Use "cpu" if no GPU available
+        device=device,  # Auto-detected: "cuda" if available, "cpu" otherwise
         project="training/runs",
         name="my_airplane_detection",
         patience=10,  # Early stopping patience

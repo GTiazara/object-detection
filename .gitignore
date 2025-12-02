@@ -42,6 +42,7 @@ poetry.lock
 *.onnx
 training/*
 # Data
+data/
 data/input/*
 data/output/*
 !data/input/.gitkeep
