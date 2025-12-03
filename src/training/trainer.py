@@ -63,6 +63,9 @@ class FineTuner:
         name: str = "fine_tune",
         patience: int = 50,
         save_period: int = 10,
+        use_clearml: bool = False,
+        clearml_project_name: Optional[str] = None,
+        clearml_task_name: Optional[str] = None,
         **kwargs,
     ) -> YOLO:
         """
@@ -124,15 +127,19 @@ class FineTuner:
         print(f"  Name: {name}")
         print()
 
+        # Initialize ClearML if enabled
+        if use_clearml:
+            if clearml_project_name and clearml_task_name:
+                print(f"Initializing ClearML task: {clearml_project_name}/{clearml_task_name}")
+                task = Task.init(
+                    project_name=clearml_project_name,
+                    task_name=clearml_task_name
+                )
+                task.connect(train_args)
+            else:
+                print("Warning: ClearML enabled but project_name or task_name not provided. Skipping ClearML...")
+
         # Train the model
-
-        # Step 1: Creating a ClearML Task
-        task = Task.init(
-            project_name="bd_fv_drom/971/local_try", task_name="my_yolo11_task"
-        )
-
-        task.connect(train_args)
-
         results = model.train(**train_args)
 
         print("\nFine-tuning completed!")

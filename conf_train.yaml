@@ -1,0 +1,135 @@
+# Configuration file for training/fine-tuning program
+# This file configures the YOLO model fine-tuning pipeline
+
+# Model configuration
+model:
+  # Path to local base model file (overrides base_model_variant if provided)
+  # Set to null to use base_model_variant instead
+  base_model_path: "/home/GTiazara/Documents/workspace/get_experience_project/object-detection/model/yolo11x.pt"
+  # Example: "model/yolo11x.pt" or null
+  
+  # Base model variant to use if base_model_path is null
+  # Options: "training", "training0", "transfer", etc.
+  base_model_variant: null
+  # Example: "training0"
+  
+  # Force re-download of model even if it exists
+  force_download: false
+
+# Dataset configuration
+dataset:
+  # Path to dataset directory
+  dataset_dir: "/home/GTiazara/Documents/workspace/get_experience_project/object-detection/data/local_data"
+  
+  # Path to dataset YAML file (if null, will use dataset_dir/data.yaml or create it)
+  dataset_yaml: data/local_data/data.yaml
+  # Example: "data/local_data/data.yaml"
+  
+  # Dataset structure (used when creating dataset YAML)
+  train_dir: "train"
+  val_dir: "val"
+  test_dir: "test"  # Optional, set to null if not available
+  
+  # Number of classes
+  num_classes: 1
+  
+  # Class names
+  class_names:
+    - "airplane"
+
+# Training parameters
+training:
+  # Number of training epochs
+  epochs: 5
+  
+  # Image size for training
+  # Options: 640, 960, 1280
+  # Larger sizes = better accuracy but slower training and more memory
+  imgsz: 256
+  
+  # Batch size
+  batch: -1
+  
+  # Device to use ('cuda', 'cpu', or null for auto)
+  device: "cuda"
+  
+  # Early stopping patience (stop if no improvement for N epochs)
+  patience: 10
+  
+  # Save checkpoint every N epochs (-1 to disable periodic saves)
+  save_period: -1
+  
+  # Enable automatic mixed precision (AMP) training
+  amp: false
+  
+  # Use pretrained weights
+  pretrained: true
+  
+  # Cache images in memory for faster training (requires sufficient RAM)
+  cache: true
+  
+  # Generate training plots
+  plots: true
+
+# Output configuration
+output:
+  # Project directory for saving results
+  project: "log"
+  
+  # Experiment name
+  name: "yolo"
+
+# ClearML configuration (optional)
+clearml:
+  # Enable ClearML experiment tracking
+  enabled: true
+  
+  # ClearML project name
+  project_name: "bd_fv_drom/971/local_try"
+  
+  # ClearML task name
+  task_name: "my_yolo11_task_local_data"
+
+# Augmentation configuration
+augmentation:
+  # Enable custom augmentations
+  enabled: false
+  
+  # Augmentation transforms (using albumentations)
+  transforms:
+    - type: "Blur"
+      blur_limit: 7
+      p: 0.3
+    
+    - type: "CLAHE"
+      clip_limit: 4.0
+      p: 0.3
+    
+    - type: "RandomBrightnessContrast"
+      brightness_limit: 0.2
+      contrast_limit: 0.2
+      p: 0.3
+    
+    - type: "HueSaturationValue"
+      hue_shift_limit: 20
+      sat_shift_limit: 30
+      val_shift_limit: 20
+      p: 0.3
+    
+    - type: "ChannelShuffle"
+      p: 0.3
+    
+    - type: "ChromaticAberration"
+      primary_distortion_limit: 0.05
+      secondary_distortion_limit: 0.1
+      mode: "green_purple"
+      interpolation: "INTER_LINEAR"
+      p: 0.3
+    
+    - type: "Dithering"
+      method: "error_diffusion"
+      n_colors: 256
+      error_diffusion_algorithm: "floyd_steinberg"
+      color_mode: "grayscale"
+      p: 0.3
+

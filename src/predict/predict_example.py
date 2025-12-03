@@ -20,14 +20,14 @@ def example_single_image():
     loader = ModelLoader()
     model = loader.load_model(
         # model_variant="training0",  # or "training", "transfer", etc.
-        local_path="C:/Users/tiaza/Documents/perso/personal_project/object-detection/training/runs/my_airplane_detection5/weights/best.pt"  # Uncomment to use local model
+        local_path="/home/GTiazara/Documents/mnt/partage/jzlou/myhddhome/src/object-detection/log/yolo5/weights/best.pt"  # Uncomment to use local model
     )
     
     # Initialize detector
     detector = Detector(model, conf_threshold=0.25)
     
     # Detect airplanes (using all image files from input directory)
-    input_dir = Path("C:/Users/tiaza/Documents/perso/personal_project/object-detection/data/input_test")
+    input_dir = Path("/home/GTiazara/Documents/workspace/get_experience_project/geo-dataset-builder/output")
     
     # Supported image formats
     image_extensions = ["*.tif", "*.TIF", "*.tiff", "*.TIFF", 
@@ -62,8 +62,10 @@ def example_single_image():
             result = detector.detect(
                 image_path=image_path,
                 imgsz=640,  # Can use 640, 960, or 1280
-                save=True,
+                save=False,
                 save_dir="data/output",
+                augment=True,
+                visualize=False,
             )
             
             # Get summary

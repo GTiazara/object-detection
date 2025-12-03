@@ -1,0 +1,1 @@
+nohup touch ./log/log$$PPID.log && python src/examples/train_example.py > ./log/log$$PPID.log 2>&1 &

@@ -52,6 +52,7 @@ class Detector:
         save: bool = False,
         save_dir: Optional[Union[str, Path]] = None,
         show: bool = False,
+        **kwargs,
     ) -> Union[Results, Any]:
         """
         Detect objects in an image.
@@ -91,15 +92,17 @@ class Detector:
             return results
         else:
             # Ultralytics YOLO (YOLOv8/YOLOv9) inference
-            results = self.model.predict(
-                source=str(image_path),
-                conf=self.conf_threshold,
-                iou=self.iou_threshold,
-                imgsz=imgsz,
-                save=save,
-                save_dir=str(save_dir) if save_dir else None,
-                show=show,
-            )
+            predict_args={
+                "source": str(image_path),
+                "conf": self.conf_threshold,
+                "iou": self.iou_threshold,
+                "imgsz": imgsz,
+                "save": save,
+                "project": str(save_dir) if save_dir else None,
+                "show": show,
+                **kwargs,
+            }
+            results = self.model.predict(**predict_args)
             
             # Print detection summary
             if results and len(results) > 0:
