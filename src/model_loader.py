@@ -10,23 +10,22 @@ from ultralytics import YOLO
 class ModelLoader:
     """Handles loading and downloading YOLO models."""
     
-    # Model configurations: (repo_id, filename, model_type)
-    # model_type: "yolov8" - specifies the YOLO version
+    # Model configurations: (repo_id, filename)
     MODEL_CONFIGS = {
-        # Efficient-YOLO-RS-Airplane-Detection models (YOLOv8)
-        "training0": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-12/best.pt", "yolov8"),
-        "training1": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-14/best.pt", "yolov8"),
-        "training2": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-28/best.pt", "yolov8"),
-        "training3": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-30/best.pt", "yolov8"),
-        "training4": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-32/best.pt", "yolov8"),
-        "training5": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-50/best.pt", "yolov8"),
-        "training6": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-62/best.pt", "yolov8"),
-        "training": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-57/best.pt", "yolov8"),
-        "transfer1": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "transfer-learning/experiment-12/best.pt", "yolov8"),
-        "transfer": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "transfer-learning/experiment-62/best.pt", "yolov8"),
-        # Javvanny flying objects detection model (YOLOv8)
-        "flying_objects": ("Javvanny/yolov8m_flying_objects_detection", "yolov8m/weights/best.pt", "yolov8"),
-        "flying_airplane": ("keremberke/yolov8m-plane-detection", "best.pt", "yolov8"),
+        # Efficient-YOLO-RS-Airplane-Detection models
+        "training0": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-12/best.pt"),
+        "training1": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-14/best.pt"),
+        "training2": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-28/best.pt"),
+        "training3": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-30/best.pt"),
+        "training4": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-32/best.pt"),
+        "training5": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-50/best.pt"),
+        "training6": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-62/best.pt"),
+        "training": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "training/experiment-57/best.pt"),
+        "transfer1": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "transfer-learning/experiment-12/best.pt"),
+        "transfer": ("iturslab/Efficient-YOLO-RS-Airplane-Detection", "transfer-learning/experiment-62/best.pt"),
+        # Javvanny flying objects detection model
+        "flying_objects": ("Javvanny/yolov8m_flying_objects_detection", "yolov8m/weights/best.pt"),
+        "flying_airplane": ("keremberke/yolov8m-plane-detection", "best.pt"),
     }
     
     def __init__(self, models_dir: Optional[str] = None):
@@ -60,7 +59,6 @@ class ModelLoader:
         *,
         local_path: Optional[str] = None,
         force_download: bool = False,
-        model_type: Optional[str] = None,
     ) -> YOLO:
         """
         Load a YOLO model either from Hugging Face or a user-provided local path.
@@ -69,34 +67,29 @@ class ModelLoader:
             model_variant: Selects which checkpoint to download ('training' or 'transfer').
             local_path: If provided, bypass download and load this file directly.
             force_download: Redownload checkpoint even if it exists locally.
-            model_type: Override model type ('yolov8'). If None, uses config default.
         """
         if local_path:
-            return self.load_local_model(local_path, model_type=model_type)
+            return self.load_local_model(local_path)
 
         if model_variant not in self.MODEL_CONFIGS:
             raise ValueError(
                 f"Unknown variant '{model_variant}'. Available options: {list(self.MODEL_CONFIGS.keys())}"
             )
 
-        repo_id, filename, default_model_type = self.MODEL_CONFIGS[model_variant]
+        repo_id, filename = self.MODEL_CONFIGS[model_variant]
         checkpoint_path = self._download_from_hf(repo_id, filename, force_download=force_download)
 
-        # Use provided model_type or fall back to config default
-        model_type_to_use = model_type if model_type is not None else default_model_type
-
-        print(f"Loading {model_type_to_use} model from {checkpoint_path}…")
-        model = self._load_yolo_model(str(checkpoint_path), model_type_to_use)
+        print(f"Loading model from {checkpoint_path}…")
+        model = self._load_yolo_model(str(checkpoint_path))
         print("Model loaded successfully! You can now call model.predict(...) as in Ultralytics docs.")
         return model
 
-    def _load_yolo_model(self, checkpoint_path: str, model_type: str) -> YOLO:
+    def _load_yolo_model(self, checkpoint_path: str) -> YOLO:
         """
         Load a YOLO model.
         
         Args:
             checkpoint_path: Path to the model checkpoint file.
-            model_type: Model type ('yolov8') for informational purposes.
         
         Returns:
             Loaded YOLO model instance.
@@ -106,34 +99,24 @@ class ModelLoader:
             return model
         except Exception as e:
             raise ValueError(
-                f"Failed to load {model_type} model from {checkpoint_path}. "
+                f"Failed to load model from {checkpoint_path}. "
                 f"Error: {str(e)}\n"
                 f"Note: Make sure you have the latest version of ultralytics installed: "
                 f"pip install --upgrade ultralytics"
             ) from e
     
-    def load_local_model(self, model_path: str, model_type: Optional[str] = None) -> YOLO:
+    def load_local_model(self, model_path: str) -> YOLO:
         """
         Load a YOLO model from a local file path.
         
         Args:
             model_path: Path to the local model file.
-            model_type: Optional model type ('yolov8'). 
-                       If None, defaults to yolov8.
         """
         path = Path(model_path)
         if not path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
-        # If model_type is not provided, try to detect it or default to yolov8
-        if model_type is None:
-            # Try to infer from filename or default to yolov8
-            # You could add logic here to detect from checkpoint metadata if needed
-            model_type = "yolov8"
-            print(f"Model type not specified, defaulting to {model_type}")
-
-        print(f"Loading {model_type} model from {path}…")
-        model = self._load_yolo_model(str(path), model_type)
+        print(f"Loading model from {path}…")
+        model = self._load_yolo_model(str(path))
         print("Model loaded successfully! You can now call model.predict(...) as in Ultralytics docs.")
         return model
-
