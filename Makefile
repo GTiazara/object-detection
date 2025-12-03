@@ -1,6 +1,10 @@
 .PHONY: help install install-dev clean run run-example test format lint setup
 
 # Variables
+DEF_FILE=object-detection.def
+IMAGE_NAME=object-detection-image
+SIF_FILE=object-detection.sif
+#
 PYTHON := python
 POETRY := poetry
 MODULE := airplane_detection
@@ -28,6 +32,15 @@ help:
 	@echo "  make run INPUT=data/input/image.jpg"
 	@echo "  make run INPUT=data/input MODEL=yolov8n IMGSZ=640"
 	@echo "  make run INPUT=data/input OUTPUT=results/"
+
+build-docker:
+	docker build . -t ${IMAGE_NAME}
+
+build-app:
+	rm -f ${SIF_FILE}
+	apptainer build ${SIF_FILE} ${DEF_FILE}
+
+build: build-docker build-app
 
 # Install dependencies
 install:
@@ -86,6 +99,9 @@ run-local:
 # Run example script
 run-example:
 	$(POETRY) run $(PYTHON) example.py
+
+run-local-train-example:
+	$(POETRY) run $(PYTHON) src/examples/train_example.py
 
 # Force download model
 download-model:
@@ -154,3 +170,10 @@ detect:
 	fi
 	@make run INPUT=$(INPUT) MODEL=$(MODEL) IMGSZ=$(IMGSZ) CONF=$(CONF) IOU=$(IOU)
 
+run-apptainer-shell:
+	apptainer shell --pwd /app --nv \
+	--bind ./src:/app/src \
+	--bind /home/GTiazara/Documents/workspace/get_experience_project/object-detection/data/local_data:/app/input_data \
+	--bind /home/GTiazara/Documents/workspace/get_experience_project/object-detection/training:/app/output_data \
+	--bind ./model:/app/model \
+	${SIF_FILE} \

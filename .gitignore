@@ -59,5 +59,9 @@ detection_results/
 .DS_Store
 Thumbs.db
 
+# 
+*.sif
+.env
+log/
 
 
