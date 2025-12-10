@@ -5,9 +5,13 @@ following the Ultralytics documentation pattern:
 https://docs.ultralytics.com/fr/usage/python/#predict
 """
 
+import gc
 from pathlib import Path
-from src.model_loader import ModelLoader
+
+import torch
+
 from src.detector import Detector
+from src.model_loader import ModelLoader
 
 # Example: Detect airplanes in all images in input folder
 def example_single_image():
@@ -16,23 +20,20 @@ def example_single_image():
     print("Example: Batch Image Detection")
     print("=" * 60)
     
-    # Load model (will download from Hugging Face if not present)
+    # Load model once (will download from Hugging Face if not present)
+    print("Loading model (this may take a moment)...")
     loader = ModelLoader()
     model = loader.load_model(
         # model_variant="training0",  # or "training", "transfer", etc.
-        local_path="/home/GTiazara/Documents/mnt/partage/jzlou/myhddhome/src/object-detection/log/yolo5/weights/best.pt"  # Uncomment to use local model
+        # local_path="C:/Users/tiaza/Documents/perso/personal_project/object-detection/training/runs/my_airplane_detection5/weights/best.pt"  # Uncomment to use local model
+        local_path="C:/Users/tiaza/Documents/perso/personal_project/object-detection/model/model.pt"
     )
     
-    # Initialize detector
+    # Initialize detector once and reuse for all images
     detector = Detector(model, conf_threshold=0.25)
-    
-    # Detect airplanes (using all image files from input directory)
-<<<<<<< HEAD:predict_example.py
+    print("Model loaded successfully!\n")
+
     input_dir = Path("C:/Users/tiaza/Documents/perso/personal_project/object-detection/data/input_test") #Path("C:/Users/tiaza/Documents/perso/personal_project/geo-dataset-builder/output") #Path("C:/Users/tiaza/Documents/perso/personal_project/object-detection/data/input_test")
-=======
-    input_dir = Path("/home/GTiazara/Documents/workspace/get_experience_project/geo-dataset-builder/output")
->>>>>>> 85ebaf3988f8b79641b5b24b247e4608609221f7:src/predict/predict_example.py
-    
     # Supported image formats
     image_extensions = ["*.tif", "*.TIF", "*.tiff", "*.TIFF", 
                        "*.png", "*.PNG", 
@@ -88,6 +89,13 @@ def example_single_image():
             print(f"  Output saved to: {output_path}")
         else:
             print(f"Image not found: {image_path}")
+        
+        # Clean up memory after processing each image
+        gc.collect()
+        
+        # Clear GPU cache if CUDA is available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     
     print(f"\n{'=' * 60}")
     print(f"Processing complete! Processed {len(image_files)} file(s).")

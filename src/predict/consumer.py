@@ -3,24 +3,23 @@
 This program continuously monitors the queue and processes files as they become available.
 """
 
+import argparse
+import gc
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+import torch
+import yaml
+
 # Add project root to path to enable imports
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+project_root = Path(__file__).parent.parent.parent
 
-try:
-    import yaml
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
-    print("Warning: PyYAML not available. Install with: pip install pyyaml")
-
-from src.model_loader import ModelLoader
 from src.detector import Detector
+from src.model_loader import ModelLoader
+from src.queue_manager import QueueManager
 
 
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -33,8 +32,8 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         Dictionary containing configuration values with defaults.
     """
-    if not YAML_AVAILABLE:
-        return _get_default_config()
+    # if not YAML_AVAILABLE:
+    #     return _get_default_config()
     
     if config_path is None:
         config_path = project_root / "conf_predict.yaml"
@@ -113,9 +112,8 @@ def _merge_config(default: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, An
 
 def main_predict(
     image_path: str,
+    detector: Detector,
     config: Optional[Dict[str, Any]] = None,
-    model_path: Optional[str] = None,
-    conf_threshold: Optional[float] = None,
     imgsz: Optional[int] = None,
     output_dir: Optional[str] = None,
     verbose: Optional[bool] = None
@@ -128,9 +126,8 @@ def main_predict(
     
     Args:
         image_path: Path to the image file to process
+        detector: Pre-initialized Detector instance (reused for all images)
         config: Configuration dictionary (if None, loads from conf_predict.yaml)
-        model_path: Path to local model file (overrides config if provided)
-        conf_threshold: Confidence threshold (overrides config if provided)
         imgsz: Input image size (overrides config if provided)
         output_dir: Output directory (overrides config if provided)
         verbose: Print detailed summaries (overrides config if provided)
@@ -143,12 +140,9 @@ def main_predict(
         config = load_config()
     
     # Use provided values or fall back to config
-    model_path = model_path or config['model']['local_path']
-    conf_threshold = conf_threshold if conf_threshold is not None else config['detection']['confidence_threshold']
     imgsz = imgsz if imgsz is not None else config['detection']['image_size']
     output_dir = output_dir or config['paths']['output_dir']
     verbose = verbose if verbose is not None else config['processing']['verbose']
-    iou_threshold = config['detection']['iou_threshold']
     save_visualization = config['output']['save_visualization']
     
     image_path_obj = Path(image_path)
@@ -165,26 +159,6 @@ def main_predict(
             print(f"Warning: Unsupported image format: {image_path_obj.suffix}")
             return False
         
-        # Load model
-        loader = ModelLoader()
-        if model_path:
-            model = loader.load_model(local_path=model_path)
-        else:
-            # Use model variant from config
-            model_variant = config['model']['model_variant']
-            force_download = config['model']['force_download']
-            model = loader.load_model(
-                model_variant=model_variant,
-                force_download=force_download
-            )
-        
-        # Initialize detector
-        detector = Detector(
-            model, 
-            conf_threshold=conf_threshold,
-            iou_threshold=iou_threshold
-        )
-        
         # Process the image
         if verbose:
             print(f"Processing: {image_path_obj.name}")
@@ -194,6 +168,8 @@ def main_predict(
             imgsz=imgsz,
             save=config['output']['save'],
             save_dir=output_dir,
+            augment=True,
+            visualize=False,
         )
         
         if result:
@@ -222,23 +198,30 @@ def main_predict(
     except Exception as e:
         print(f"Error processing {image_path}: {e}")
         if verbose:
-            import traceback
             traceback.print_exc()
         return False
+    finally:
+        # Clean up memory after processing each image
+        gc.collect()
+        
+        # Clear GPU cache if CUDA is available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
-def process_file(file_path: str, **kwargs) -> bool:
+def process_file(file_path: str, detector: Detector, **kwargs) -> bool:
     """
     Process a single output file using the prediction logic.
     
     Args:
         file_path: Path to the file to process
+        detector: Pre-initialized Detector instance
         **kwargs: Additional arguments passed to main_predict
         
     Returns:
         True if processing was successful, False otherwise
     """
-    return main_predict(file_path, **kwargs)
+    return main_predict(file_path, detector, **kwargs)
 
 
 def main(
@@ -278,16 +261,44 @@ def main(
     output_dir = output_dir or config['paths']['output_dir']
     verbose = verbose if verbose is not None else config['processing']['verbose']
     
-    # Try to import queue_manager, but handle gracefully if it doesn't exist
+    # Load model once and reuse for all images (major performance improvement)
+    if verbose:
+        print("Loading model (this may take a moment)...")
+    
+    loader = ModelLoader()
+    model_path_config = model_path or config['model']['local_path']
+    conf_threshold_config = conf_threshold if conf_threshold is not None else config['detection']['confidence_threshold']
+    iou_threshold_config = config['detection']['iou_threshold']
+    
     try:
-        from src.queue_manager import QueueManager
-    except ImportError:
-        print("Warning: queue_manager module not found. Running in standalone mode.")
-        print("To use queue functionality, create src/queue_manager.py")
-        QueueManager = None
+        if model_path_config:
+            model = loader.load_model(local_path=model_path_config)
+        else:
+            # Use model variant from config
+            model_variant = config['model']['model_variant']
+            force_download = config['model']['force_download']
+            model = loader.load_model(
+                model_variant=model_variant,
+                force_download=force_download
+            )
+        
+        # Initialize detector once and reuse for all images
+        detector = Detector(
+            model, 
+            conf_threshold=conf_threshold_config,
+            iou_threshold=iou_threshold_config
+        )
+        
+        if verbose:
+            print("Model loaded successfully!\n")
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        if verbose:
+            traceback.print_exc()
+        return
     
     # Determine if we should use standalone mode
-    use_standalone = standalone_mode if standalone_mode is not None else (config['processing']['standalone_mode'] or QueueManager is None)
+    use_standalone = standalone_mode if standalone_mode is not None else config['processing']['standalone_mode']
     
     if use_standalone:
         # Standalone mode: process files directly from a directory
@@ -324,18 +335,25 @@ def main(
                 print(f"\n[{idx}/{len(image_files)}] Processing: {image_path.name}")
                 print("-" * 60)
             
-            success = main_predict(
-                str(image_path),
-                config=config,
-                model_path=model_path,
-                conf_threshold=conf_threshold,
-                imgsz=imgsz,
-                output_dir=output_dir,
-                verbose=verbose
-            )
-            
-            if not success:
-                print(f"Failed to process: {image_path}")
+            try:
+                success = main_predict(
+                    str(image_path),
+                    detector=detector,
+                    config=config,
+                    imgsz=imgsz,
+                    output_dir=output_dir,
+                    verbose=verbose
+                )
+                
+                if not success:
+                    print(f"Failed to process: {image_path}")
+                    if not continue_on_error:
+                        print("Stopping due to error (continue_on_error=False)")
+                        break
+            except Exception as e:
+                print(f"Error processing {image_path}: {e}")
+                if verbose:
+                    traceback.print_exc()
                 if not continue_on_error:
                     print("Stopping due to error (continue_on_error=False)")
                     break
@@ -374,9 +392,8 @@ def main(
             # Process the file using prediction logic
             success = main_predict(
                 file_path,
+                detector=detector,
                 config=config,
-                model_path=model_path,
-                conf_threshold=conf_threshold,
                 imgsz=imgsz,
                 output_dir=output_dir,
                 verbose=verbose
@@ -411,10 +428,9 @@ def main(
     except Exception as e:
         print(f"Error in consumer: {e}")
         if verbose:
-            import traceback
             traceback.print_exc()
     finally:
-        if cleanup_on_exit and QueueManager is not None:
+        if cleanup_on_exit:
             if verbose:
                 print("Cleaning up missing file entries...")
             queue_manager.cleanup_missing_files()
@@ -423,8 +439,6 @@ def main(
 
 
 if __name__ == "__main__":
-    import argparse
-    
     parser = argparse.ArgumentParser(
         description="Consumer program for processing outputs with object detection",
         formatter_class=argparse.RawDescriptionHelpFormatter,
