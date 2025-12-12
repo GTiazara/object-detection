@@ -9,7 +9,8 @@ from pathlib import Path
 from src.model_loader import ModelLoader
 
 from clearml import Task
-
+import inspect
+import random
 
 class FineTuner:
     """Fine-tune YOLOv8 models on custom datasets in YOLOv8 format."""
@@ -66,6 +67,7 @@ class FineTuner:
         use_clearml: bool = False,
         clearml_project_name: Optional[str] = None,
         clearml_task_name: Optional[str] = None,
+        num_prediction_plots: int = 0,
         **kwargs,
     ) -> YOLO:
         """
@@ -138,6 +140,16 @@ class FineTuner:
                 task.connect(train_args)
             else:
                 print("Warning: ClearML enabled but project_name or task_name not provided. Skipping ClearML...")
+
+
+        # Add prediction plot callback if requested
+        if num_prediction_plots > 0:
+            callback = PredictionPlotCallback(
+                num_predictions=num_prediction_plots,
+                use_clearml=use_clearml
+            )
+            model.add_callback("on_val_batch_end", callback)
+            print(f"Added prediction plot callback: {num_prediction_plots} plots per epoch")
 
         # Train the model
         results = model.train(**train_args)
@@ -219,3 +231,114 @@ class FineTuner:
 
         print(f"Dataset YAML created at: {output_path}")
         return str(output_path)
+
+
+class PredictionPlotCallback:
+    """Callback to plot validation predictions and upload to ClearML."""
+    
+    def __init__(
+        self,
+        num_predictions: int = 4,
+        use_clearml: bool = False,
+    ):
+        """
+        Initialize the prediction plot callback.
+        
+        Args:
+            num_predictions: Number of prediction plots to generate per epoch
+            use_clearml: Whether to upload plots to ClearML
+        """
+        self.num_predictions = num_predictions
+        self.use_clearml = use_clearml
+        self.plots_generated = 0
+        self.current_epoch = 0
+    
+    def __call__(self, validator):
+        """
+        Callback function called after each validation batch.
+        
+        Args:
+            validator: Ultralytics validator object
+        """
+        # Check if we've generated enough plots for this epoch
+        if self.plots_generated >= self.num_predictions:
+            return
+        
+        # Get current epoch from trainer
+        frame = inspect.currentframe()
+        try:
+            # Navigate up the call stack to find trainer
+            for _ in range(5):  # Check up to 5 frames up
+                frame = frame.f_back
+                if frame is None:
+                    break
+                locals_dict = frame.f_locals
+                
+                # Check if we're in the trainer context
+                if 'self' in locals_dict:
+                    trainer_obj = locals_dict['self']
+                    if hasattr(trainer_obj, 'epoch'):
+                        epoch = trainer_obj.epoch + 1  # 0-indexed to 1-indexed
+                        if epoch != self.current_epoch:
+                            # New epoch, reset counter
+                            self.current_epoch = epoch
+                            self.plots_generated = 0
+                        break
+        except Exception:
+            pass
+        
+        # Randomly decide whether to plot this batch (to limit number of plots)
+        if random.random() > (self.num_predictions / 10.0):  # Approximate probability
+            return
+        
+        try:
+            # Get batch and predictions from validator context
+            frame = inspect.currentframe().f_back.f_back
+            if frame is None:
+                return
+            
+            v = frame.f_locals
+            
+            if 'batch' not in v or 'batch_i' not in v:
+                return
+            
+            batch = v['batch']
+            batch_i = v['batch_i']
+            preds = v.get('preds', None)
+            
+            # Plot validation samples
+            val_samples_img = validator.plot_val_samples(batch, batch_i)
+            
+            # Plot predictions if available
+            if preds is not None:
+                pred_img = validator.plot_predictions(batch, preds, batch_i)
+            else:
+                pred_img = None
+            
+            # Upload to ClearML if enabled
+            if self.use_clearml:
+                try:
+                    task = Task.current_task()
+                    if task:
+                        if val_samples_img is not None:
+                            task.get_logger().report_image(
+                                title=f"Validation Samples Epoch {self.current_epoch}",
+                                series=f"Batch {batch_i}",
+                                iteration=self.current_epoch,
+                                image=val_samples_img,
+                            )
+                        
+                        if pred_img is not None:
+                            task.get_logger().report_image(
+                                title=f"Predictions Epoch {self.current_epoch}",
+                                series=f"Batch {batch_i}",
+                                iteration=self.current_epoch,
+                                image=pred_img,
+                            )
+                except Exception as e:
+                    print(f"Warning: Failed to upload plots to ClearML: {e}")
+            
+            self.plots_generated += 1
+            
+        except Exception as e:
+            print(f"Warning: Failed to generate prediction plots: {e}")

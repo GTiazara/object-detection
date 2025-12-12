@@ -192,6 +192,7 @@ def main():
         use_clearml=clearml_cfg.get('enabled', False),
         clearml_project_name=clearml_cfg.get('project_name'),
         clearml_task_name=clearml_cfg.get('task_name'),
+        num_prediction_plots=clearml_cfg.get('num_prediction_plots', 0),
         **train_kwargs,
     )
     

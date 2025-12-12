@@ -24,6 +24,7 @@ albumentationsx = "^2.0.13"
 clearml = "^2.0.2"
 python-dotenv = ">=1.0.0"
 rasterio = "^1.4.3"
+h5py = ">=3.10.0"
 
 
 

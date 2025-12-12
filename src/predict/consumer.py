@@ -12,12 +12,7 @@ from typing import Optional, Dict, Any
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-try:
-    import yaml
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
-    print("Warning: PyYAML not available. Install with: pip install pyyaml")
+import yaml
 
 from src.model_loader import ModelLoader
 from src.detector import Detector
@@ -33,9 +28,6 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         Dictionary containing configuration values with defaults.
     """
-    if not YAML_AVAILABLE:
-        return _get_default_config()
-    
     if config_path is None:
         config_path = project_root / "conf_predict.yaml"
     else:
@@ -278,16 +270,10 @@ def main(
     output_dir = output_dir or config['paths']['output_dir']
     verbose = verbose if verbose is not None else config['processing']['verbose']
     
-    # Try to import queue_manager, but handle gracefully if it doesn't exist
-    try:
-        from src.queue_manager import QueueManager
-    except ImportError:
-        print("Warning: queue_manager module not found. Running in standalone mode.")
-        print("To use queue functionality, create src/queue_manager.py")
-        QueueManager = None
+    from src.utils.queue_manager import QueueManager
     
     # Determine if we should use standalone mode
-    use_standalone = standalone_mode if standalone_mode is not None else (config['processing']['standalone_mode'] or QueueManager is None)
+    use_standalone = standalone_mode if standalone_mode is not None else config['processing']['standalone_mode']
     
     if use_standalone:
         # Standalone mode: process files directly from a directory
@@ -414,7 +400,7 @@ def main(
             import traceback
             traceback.print_exc()
     finally:
-        if cleanup_on_exit and QueueManager is not None:
+        if cleanup_on_exit:
             if verbose:
                 print("Cleaning up missing file entries...")
             queue_manager.cleanup_missing_files()

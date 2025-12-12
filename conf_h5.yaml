@@ -1,0 +1,134 @@
+# Configuration file for H5/HDF5 prediction program
+# This file configures the object detection prediction pipeline for H5 files
+
+# Model configuration
+model:
+  # Path to local model file (overrides model_variant if provided)
+  # Set to null to use model_variant instead
+  local_path: "/home/GTiazara/Documents/workspace/get_experience_project/object-detection/model/best_10.pt" # null
+  # Example: "model/best.pt"
+  
+  # Model variant to use if local_path is null
+  # Options: "training", "training0", "transfer", etc.
+  model_variant: null # "training"
+  
+  # Force re-download of model even if it exists
+  force_download: false
+
+sam:
+  enabled: false
+  model_path: "sam2_t.pt"  # or path to your SAM model
+  use_original_image: true     # Use original array (recommended)
+  resize:
+    enabled: true
+    width: 250      # Optional: target width
+    height: 250     # Optional: target height (if both specified, uses fixed size)
+    # Or specify only one to maintain aspect ratio:
+    # height: 1024    # Resize to height 1024, maintain aspect ratio
+    interpolation: "bilinear"  # Options: nearest, bilinear, bicubic, area, lanczos
+# Detection parameters
+detection:
+  # Confidence threshold for detections (0.0 to 1.0)
+  # Lower values = more detections (including less confident ones)
+  # Higher values = fewer but more confident detections
+  confidence_threshold: 0.01
+  
+  # IoU threshold for Non-Maximum Suppression (0.0 to 1.0)
+  # Controls overlap handling between detections
+  iou_threshold: 0.45
+  
+  # Input image size for model inference
+  # Options: 640, 960, 1280
+  # Larger sizes = better accuracy but slower processing
+  image_size: 640
+  
+  # Resize image before detection using albumentations
+  # If null, no resizing is applied (uses original image size)
+  # Can specify width and height, or just one dimension (maintains aspect ratio)
+  resize:
+    enabled: false
+    width: 640  # If null, maintains aspect ratio based on height
+    height: 640  # If null, maintains aspect ratio based on width
+    interpolation: "bilinear"  # Options: "nearest", "bilinear", "bicubic", "area", "lanczos"
+    # Example: {enabled: true, width: 1024, height: 1024}
+    # Example: {enabled: true, height: 1024}  # maintains aspect ratio
+  
+  # Tiling/zone processing for large images
+  # If image is larger than imgsz, split into tiles and merge predictions
+  tiling:
+    enabled: true  # Enable tiling for large images
+    tile_size: 640  # Tile size (if null, uses image_size)
+    overlap: 50  # Overlap between tiles in pixels (helps avoid missing objects at boundaries)
+    merge_nms_iou: 0.99  # IoU threshold for NMS when merging detections from multiple tiles
+
+# Paths configuration
+paths:
+  # Input H5/HDF5 file path
+  # If null, must be provided via command-line argument
+  input_path: "/home/GTiazara/Documents/SDM/carto_fv_drom/bdfv-drom-modules/bdf-datasetmaker/output/pridict_bambou_dalle_1km_mini/DROM_971/orthoimage.h5" #"/home/GTiazara/Documents/SDM/carto_fv_drom/bdfv-drom-modules/bdf-datasetmaker/output/bambou_all/DROM_971/orthoimage.h5"
+  # Example: "data/input.h5"
+  
+  # Output directory for detection results and visualizations
+  # If null, output files are saved in the same directory as the input H5 file
+  output_dir: "data/output" #null
+  # Example: "data/output"
+
+# Processing behavior
+processing:
+  # Continue processing on errors (don't stop on single dataset error)
+  continue_on_error: true
+  
+  # Print detailed detection summaries for each dataset
+  verbose: true
+
+# H5 file specific settings
+h5:
+  # Minimum array dimensions to consider as valid datasets
+  # Arrays with fewer dimensions will be skipped
+  min_dimensions: 2
+  
+  # Maximum array dimensions to process
+  # Arrays with more dimensions will be skipped
+  max_dimensions: 4
+  
+  # Dataset name patterns to include (regex patterns)
+  # If empty, all datasets are processed
+  include_patterns: []
+  # Example: ["^/group1/.*", "^/group2/dataset.*"]
+  
+  # Dataset name patterns to exclude (regex patterns)
+  exclude_patterns: []
+  # Example: ["^/metadata/.*", ".*_mask$"]
+  
+  # Metadata attribute names in H5 dataset attributes
+  metadata:
+    # Attribute name for transform/affine transformation
+    # Can be a single name or a list of possible names (first match is used)
+    transform_attr: "transform"
+    # Example: "transform" or ["transform", "affine", "geo_transform"]
+    
+    # Attribute name for CRS/coordinate reference system
+    # Can be a single name or a list of possible names (first match is used)
+    crs_attr: "srid"
+    # Example: "crs" or ["crs", "srs", "spatial_ref"]
+    
+    # Attribute name for nodata value
+    # Can be a single name or a list of possible names (first match is used)
+    nodata_attr: ["nodata", "no_data", "nodata_value"]
+    # Example: "nodata" or ["nodata", "no_data", "nodata_value"]
+    
+    # Attribute name for bounds
+    # Can be a single name or a list of possible names (first match is used)
+    bounds_attr: "bounds"
+    # Example: "bounds" or ["bounds", "bbox", "extent"]
+
+# Output settings
+output:
+  # Save detection results as TIF files
+  save: true
+  
+  # Output filename pattern
+  # Available placeholders: {h5_stem}, {dataset_path}, {dataset_index}
+  # Default: "{h5_stem}_{dataset_path}_detections.tif"
+  filename_pattern: "{h5_stem}_{dataset_path}_detections.tif"
+

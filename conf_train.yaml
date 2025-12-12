@@ -5,7 +5,7 @@
 model:
   # Path to local base model file (overrides base_model_variant if provided)
   # Set to null to use base_model_variant instead
-  base_model_path: "/home/GTiazara/Documents/workspace/get_experience_project/object-detection/model/yolo11x.pt"
+  base_model_path: "/home/GTiazara/Documents/workspace/get_experience_project/object-detection/model/yolo11n-seg.pt"
   # Example: "model/yolo11x.pt" or null
   
   # Base model variant to use if base_model_path is null
@@ -19,10 +19,10 @@ model:
 # Dataset configuration
 dataset:
   # Path to dataset directory
-  dataset_dir: "/home/GTiazara/Documents/workspace/get_experience_project/object-detection/data/local_data"
+  dataset_dir: "/home/GTiazara/Documents/SDM/carto_fv_drom/bdfv-drom-modules/bdf-datasetmaker/output/yolo"
   
   # Path to dataset YAML file (if null, will use dataset_dir/data.yaml or create it)
-  dataset_yaml: data/local_data/data.yaml
+  dataset_yaml: /home/GTiazara/Documents/SDM/carto_fv_drom/bdfv-drom-modules/bdf-datasetmaker/output/yolo/data.yaml
   # Example: "data/local_data/data.yaml"
   
   # Dataset structure (used when creating dataset YAML)
@@ -40,7 +40,7 @@ dataset:
 # Training parameters
 training:
   # Number of training epochs
-  epochs: 5
+  epochs: 20
   
   # Image size for training
   # Options: 640, 960, 1280
@@ -48,7 +48,7 @@ training:
   imgsz: 256
   
   # Batch size
-  batch: -1
+  batch: 2
   
   # Device to use ('cuda', 'cpu', or null for auto)
   device: "cuda"
@@ -89,6 +89,10 @@ clearml:
   
   # ClearML task name
   task_name: "my_yolo11_task_local_data"
+  
+  # Number of prediction plots to generate and upload per epoch (0 to disable)
+  # These will be visible in ClearML
+  num_prediction_plots: 4
 
 # Augmentation configuration
 augmentation:
