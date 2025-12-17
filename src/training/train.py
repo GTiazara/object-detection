@@ -162,9 +162,11 @@ def main():
             'hsv_v': 0.5,
             'degrees': 180,
             'translate': 0.25,
-            'scale': 0.5,
+            'scale': 0.5, 
             'fliplr': 0.5,
-            'mosaic': 0,
+            'mosaic': 0.3,
+            'mixup': 0.5,
+            'cutmix': 0.5,
         }
     
     # Add optional training parameters
@@ -192,6 +194,7 @@ def main():
         use_clearml=clearml_cfg.get('enabled', False),
         clearml_project_name=clearml_cfg.get('project_name'),
         clearml_task_name=clearml_cfg.get('task_name'),
+        num_prediction_plots=clearml_cfg.get('num_prediction_plots', 0),
         **train_kwargs,
     )
     
