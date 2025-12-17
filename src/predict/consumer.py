@@ -13,6 +13,8 @@ from typing import Optional, Dict, Any, Tuple
 
 import torch
 import yaml
+import psutil
+from src.utils.queue_manager import QueueManager
 
 # Add project root to path to enable imports
 project_root = Path(__file__).parent.parent
