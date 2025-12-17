@@ -87,15 +87,22 @@ def example_single_image():
                 output_path = Path("data/output") / f"{image_path.stem}_detections.jpg"
             detector.visualize(image_path, result, output_path)
             print(f"  Output saved to: {output_path}")
+            
+            # Explicitly delete result object to free memory
+            del result
         else:
             print(f"Image not found: {image_path}")
         
-        # Clean up memory after processing each image
-        gc.collect()
+        # Aggressive memory cleanup after processing each image
+        # Force garbage collection multiple times to handle circular references
+        for _ in range(2):
+            gc.collect()
         
         # Clear GPU cache if CUDA is available
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            # Synchronize to ensure cache is cleared
+            torch.cuda.synchronize()
     
     print(f"\n{'=' * 60}")
     print(f"Processing complete! Processed {len(image_files)} file(s).")

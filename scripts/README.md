@@ -28,6 +28,19 @@ Install PyTorch with CUDA support. This script will:
 4. Verify the installation
 
 **Usage:**
+
+# Install with default CUDA 13.0 (latest)
+python scripts/install_cuda_pytorch.py
+
+# Install with CUDA 12.1
+python scripts/install_cuda_pytorch.py --cuda-version cu121
+
+# Install with CUDA 11.8
+python scripts/install_cuda_pytorch.py --cuda-version cu118
+
+# Install with custom index URL
+python scripts/install_cuda_pytorch.py --index-url https://download.pytorch.org/whl/cu130
+
 ```bash
 python scripts/install_cuda_pytorch.py
 ```
@@ -37,6 +50,9 @@ Or with virtual environment:
 .\venv\Scripts\activate.ps1
 python scripts/install_cuda_pytorch.py
 ```
+
+
+
 
 **Note:** Make sure your virtual environment is activated before running this script.
 

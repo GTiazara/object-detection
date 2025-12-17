@@ -15,6 +15,7 @@ class QueueManager:
     """
     Manages a queue of unprocessed output files using SQLite.
     Thread-safe and process-safe for inter-process communication.
+    Uses connection reuse to reduce overhead.
     """
     
     def __init__(self, db_path: str = "output_queue.db", max_unprocessed: int = 10):
@@ -28,31 +29,49 @@ class QueueManager:
         self.db_path = Path(db_path)
         self.max_unprocessed = max_unprocessed
         self._lock = threading.Lock()
+        self._connection = None  # Reuse connection for better performance
         self._init_database()
     
     def _init_database(self):
         """Initialize the database schema."""
-        with self._get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS output_queue (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    file_path TEXT NOT NULL UNIQUE,
-                    created_at REAL NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    processed_at REAL
-                )
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_status ON output_queue(status)
-            """)
-            conn.commit()
+        conn = self._get_connection()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS output_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path TEXT NOT NULL UNIQUE,
+                created_at REAL NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                processed_at REAL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_status ON output_queue(status)
+        """)
+        conn.commit()
+    
+    def _get_connection(self):
+        """
+        Get a database connection, reusing existing one if available.
+        Creates new connection if needed or if existing one is closed.
+        """
+        if self._connection is None:
+            self._connection = sqlite3.connect(
+                str(self.db_path),
+                timeout=30.0,  # 30 second timeout for concurrent access
+                check_same_thread=False
+            )
+            self._connection.row_factory = sqlite3.Row
+        return self._connection
     
     @contextmanager
-    def _get_connection(self):
-        """Get a database connection with proper timeout for concurrent access."""
+    def _get_connection_context(self):
+        """
+        Get a database connection context manager for operations that need isolation.
+        Use this for write operations that need to be atomic.
+        """
         conn = sqlite3.connect(
             str(self.db_path),
-            timeout=30.0,  # 30 second timeout for concurrent access
+            timeout=30.0,
             check_same_thread=False
         )
         conn.row_factory = sqlite3.Row
@@ -60,6 +79,16 @@ class QueueManager:
             yield conn
         finally:
             conn.close()
+    
+    def _close_connection(self):
+        """Close the persistent connection if it exists."""
+        if self._connection is not None:
+            try:
+                self._connection.close()
+            except:
+                pass
+            finally:
+                self._connection = None
     
     def add_output(self, file_path: str) -> bool:
         """
@@ -73,7 +102,21 @@ class QueueManager:
         """
         file_path = str(Path(file_path).resolve())
         with self._lock:
-            with self._get_connection() as conn:
+            conn = self._get_connection()
+            try:
+                conn.execute("""
+                    INSERT INTO output_queue (file_path, created_at, status)
+                    VALUES (?, ?, 'pending')
+                """, (file_path, time.time()))
+                conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                # File already in queue
+                return False
+            except sqlite3.OperationalError:
+                # Connection may be closed, recreate it
+                self._close_connection()
+                conn = self._get_connection()
                 try:
                     conn.execute("""
                         INSERT INTO output_queue (file_path, created_at, status)
@@ -82,12 +125,23 @@ class QueueManager:
                     conn.commit()
                     return True
                 except sqlite3.IntegrityError:
-                    # File already in queue
                     return False
     
     def count_unprocessed(self) -> int:
         """Count the number of unprocessed items in the queue."""
-        with self._get_connection() as conn:
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count
+                FROM output_queue
+                WHERE status = 'pending'
+            """)
+            result = cursor.fetchone()
+            return result['count'] if result else 0
+        except sqlite3.OperationalError:
+            # Connection may be closed, recreate it
+            self._close_connection()
+            conn = self._get_connection()
             cursor = conn.execute("""
                 SELECT COUNT(*) as count
                 FROM output_queue
@@ -122,7 +176,21 @@ class QueueManager:
         Returns:
             File path or None if no pending items
         """
-        with self._get_connection() as conn:
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT file_path
+                FROM output_queue
+                WHERE status = 'pending'
+                ORDER BY created_at ASC
+                LIMIT 1
+            """)
+            result = cursor.fetchone()
+            return result['file_path'] if result else None
+        except sqlite3.OperationalError:
+            # Connection may be closed, recreate it
+            self._close_connection()
+            conn = self._get_connection()
             cursor = conn.execute("""
                 SELECT file_path
                 FROM output_queue
@@ -144,14 +212,27 @@ class QueueManager:
             True if marked successfully, False if not found
         """
         file_path = str(Path(file_path).resolve())
-        with self._get_connection() as conn:
-            cursor = conn.execute("""
-                UPDATE output_queue
-                SET status = 'processing'
-                WHERE file_path = ? AND status = 'pending'
-            """, (file_path,))
-            conn.commit()
-            return cursor.rowcount > 0
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.execute("""
+                    UPDATE output_queue
+                    SET status = 'processing'
+                    WHERE file_path = ? AND status = 'pending'
+                """, (file_path,))
+                conn.commit()
+                return cursor.rowcount > 0
+            except sqlite3.OperationalError:
+                # Connection may be closed, recreate it
+                self._close_connection()
+                conn = self._get_connection()
+                cursor = conn.execute("""
+                    UPDATE output_queue
+                    SET status = 'processing'
+                    WHERE file_path = ? AND status = 'pending'
+                """, (file_path,))
+                conn.commit()
+                return cursor.rowcount > 0
     
     def mark_completed(self, file_path: str):
         """
@@ -161,7 +242,17 @@ class QueueManager:
             file_path: Path to the file
         """
         file_path = str(Path(file_path).resolve())
-        with self._get_connection() as conn:
+        try:
+            conn = self._get_connection()
+            conn.execute("""
+                DELETE FROM output_queue
+                WHERE file_path = ?
+            """, (file_path,))
+            conn.commit()
+        except sqlite3.OperationalError:
+            # Connection may be closed, recreate it
+            self._close_connection()
+            conn = self._get_connection()
             conn.execute("""
                 DELETE FROM output_queue
                 WHERE file_path = ?
@@ -175,7 +266,19 @@ class QueueManager:
         Returns:
             List of (file_path, created_at) tuples
         """
-        with self._get_connection() as conn:
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT file_path, created_at
+                FROM output_queue
+                WHERE status = 'pending'
+                ORDER BY created_at ASC
+            """)
+            return [(row['file_path'], row['created_at']) for row in cursor.fetchall()]
+        except sqlite3.OperationalError:
+            # Connection may be closed, recreate it
+            self._close_connection()
+            conn = self._get_connection()
             cursor = conn.execute("""
                 SELECT file_path, created_at
                 FROM output_queue
@@ -188,11 +291,26 @@ class QueueManager:
         """
         Remove entries from queue for files that no longer exist.
         """
-        with self._get_connection() as conn:
+        try:
+            conn = self._get_connection()
             cursor = conn.execute("SELECT file_path FROM output_queue")
             for row in cursor.fetchall():
                 file_path = row['file_path']
                 if not Path(file_path).exists():
                     conn.execute("DELETE FROM output_queue WHERE file_path = ?", (file_path,))
             conn.commit()
+        except sqlite3.OperationalError:
+            # Connection may be closed, recreate it
+            self._close_connection()
+            conn = self._get_connection()
+            cursor = conn.execute("SELECT file_path FROM output_queue")
+            for row in cursor.fetchall():
+                file_path = row['file_path']
+                if not Path(file_path).exists():
+                    conn.execute("DELETE FROM output_queue WHERE file_path = ?", (file_path,))
+            conn.commit()
+    
+    def __del__(self):
+        """Clean up connection on deletion."""
+        self._close_connection()
 
