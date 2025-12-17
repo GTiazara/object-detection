@@ -14,21 +14,14 @@ from typing import Optional, Dict, Any, Tuple
 import torch
 import yaml
 import psutil
-from src.utils.queue_manager import QueueManager
 
 # Add project root to path to enable imports
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
-
-try:
-    import yaml
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
-    print("Warning: PyYAML not available. Install with: pip install pyyaml")
 
 from src.model_loader import ModelLoader
 from src.detector import Detector
+from src.utils.queue_manager import QueueManager
 
 
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:

@@ -29,13 +29,7 @@ from src.detector import Detector
 from src.utils.tile import split_image_into_tiles, merge_tile_detections, TileProcessor
 from src.utils.image_utils import array_to_image, save_detection_as_tif
 from src.utils.sam_utils import extract_masks_and_points, format_points_for_sam, save_image_with_points
-
-try:
-    from ultralytics import SAM
-    SAM_AVAILABLE = True
-except ImportError:
-    SAM_AVAILABLE = False
-    SAM = None
+from ultralytics import SAM
 
 
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -468,7 +462,7 @@ def predict_h5(
     sam_model = None
     sam_config = config.get('sam', {})
     sam_enabled = sam_config.get('enabled', False)
-    if sam_enabled and SAM_AVAILABLE:
+    if sam_enabled:
         sam_model_path = sam_config.get('model_path')
         if sam_model_path:
             try:
@@ -482,9 +476,6 @@ def predict_h5(
             if verbose:
                 print("Warning: SAM enabled but no model_path specified in config")
             sam_enabled = False
-    elif sam_enabled and not SAM_AVAILABLE:
-        print("Warning: SAM is enabled but ultralytics is not available. Install with: pip install ultralytics")
-        sam_enabled = False
     
     output_files = []
     

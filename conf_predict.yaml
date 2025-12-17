@@ -95,12 +95,12 @@ processing:
   verbose: true
 
 memory:
-  max_memory_gb: 16.0          # Maximum RAM usage in GB
-  max_memory_percent: 85.0      # Maximum RAM usage percentage
+  max_memory_gb: 14.0          # Maximum RAM usage in GB
+  max_memory_percent: 90.0      # Maximum RAM usage percentage
   cleanup_interval: 5           # Cleanup every N images
   force_cleanup_interval: 5     # Force full cleanup every N images
   pause_on_high_memory: true    # Pause processing when memory is high
   pause_duration: 10.0          # Seconds to pause when memory is high
   reload_model_on_high_memory: true  # Reload model when memory is high (frees model memory)
   reload_model_threshold_gb: 14.0   # Reload model when memory exceeds this (GB)
-  reload_model_threshold_percent: 85.0  # Reload model when memory exceeds this (%)
+  reload_model_threshold_percent: 90.0  # Reload model when memory exceeds this (%)

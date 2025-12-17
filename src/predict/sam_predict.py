@@ -11,13 +11,7 @@ import cv2
 import rasterio
 from rasterio.transform import Affine
 from rasterio.crs import CRS
-
-try:
-    from ultralytics import SAM
-    SAM_AVAILABLE = True
-except ImportError:
-    SAM_AVAILABLE = False
-    SAM = None
+from ultralytics import SAM
 
 
 def predict_sam(
@@ -39,11 +33,8 @@ def predict_sam(
         Path to the saved output TIF file
         
     Raises:
-        ImportError: If ultralytics SAM is not available
         FileNotFoundError: If image or model file doesn't exist
     """
-    if not SAM_AVAILABLE:
-        raise ImportError("ultralytics SAM is not available. Please install ultralytics: pip install ultralytics")
     
     # Convert to Path objects
     image_path = Path(image_path)
