@@ -15,13 +15,18 @@ import torch
 import yaml
 
 # Add project root to path to enable imports
-project_root = Path(__file__).parent.parent.parent
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
-from src.detector import Detector
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+    print("Warning: PyYAML not available. Install with: pip install pyyaml")
+
 from src.model_loader import ModelLoader
-from src.queue_manager import QueueManager
-
-import psutil
+from src.detector import Detector
 
 
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -34,9 +39,6 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         Dictionary containing configuration values with defaults.
     """
-    # if not YAML_AVAILABLE:
-    #     return _get_default_config()
-    
     if config_path is None:
         config_path = project_root / "conf_predict.yaml"
     else:
