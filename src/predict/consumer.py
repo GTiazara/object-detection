@@ -3,16 +3,29 @@
 This program continuously monitors the queue and processes files as they become available.
 """
 
+import argparse
+import gc
 import sys
 import time
+import traceback
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
+
+import torch
+import yaml
+import psutil
+from src.utils.queue_manager import QueueManager
 
 # Add project root to path to enable imports
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import yaml
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+    print("Warning: PyYAML not available. Install with: pip install pyyaml")
 
 from src.model_loader import ModelLoader
 from src.detector import Detector
@@ -88,6 +101,17 @@ def _get_default_config() -> Dict[str, Any]:
             'standalone_mode': False,
             'continue_on_error': True,
             'verbose': True
+        },
+        'memory': {
+            'max_memory_gb': 16.0,  # Maximum RAM usage in GB before pausing
+            'max_memory_percent': 85.0,  # Maximum RAM usage percentage
+            'cleanup_interval': 5,  # Cleanup every N images
+            'force_cleanup_interval': 20,  # Force full cleanup every N images
+            'pause_on_high_memory': True,  # Pause processing when memory is high
+            'pause_duration': 10.0,  # Seconds to pause when memory is high
+            'reload_model_threshold_gb': 12.0,  # Reload model when memory exceeds this (GB)
+            'reload_model_threshold_percent': 75.0,  # Reload model when memory exceeds this (%)
+            'reload_model_on_high_memory': True  # Enable model reload when memory is high
         }
     }
 
@@ -103,11 +127,131 @@ def _merge_config(default: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, An
     return result
 
 
+def check_memory_usage(config: Dict[str, Any]) -> Tuple[bool, str]:
+    """
+    Check current memory usage and determine if processing should pause.
+    
+    Returns:
+        (should_pause, message) tuple
+    """
+    try:
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        memory_mb = memory_info.rss / (1024 * 1024)
+        memory_gb = memory_mb / 1024
+        
+        # Check system-wide memory
+        system_memory = psutil.virtual_memory()
+        memory_percent = system_memory.percent
+        
+        max_memory_gb = config.get('memory', {}).get('max_memory_gb', 16.0)
+        max_memory_percent = config.get('memory', {}).get('max_memory_percent', 85.0)
+        
+        should_pause = False
+        message = ""
+        
+        if memory_gb > max_memory_gb:
+            should_pause = True
+            message = f"Process memory ({memory_gb:.2f} GB) exceeds limit ({max_memory_gb} GB)"
+        
+        if memory_percent > max_memory_percent:
+            should_pause = True
+            message = f"System memory ({memory_percent:.1f}%) exceeds limit ({max_memory_percent}%)"
+        
+        return should_pause, message
+    except Exception as e:
+        # If memory check fails, don't block processing
+        return False, f"Memory check failed: {e}"
+
+
+def aggressive_memory_cleanup(verbose: bool = False):
+    """Perform aggressive memory cleanup."""
+    if verbose:
+        print("Performing aggressive memory cleanup...")
+    
+    # Force garbage collection multiple times to handle circular references
+    for _ in range(3):
+        gc.collect()
+    
+    # Clear GPU cache if available
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        # Clear again after sync
+        torch.cuda.empty_cache()
+    
+    if verbose:
+        try:
+            process = psutil.Process()
+            memory_mb = process.memory_info().rss / (1024 * 1024)
+            print(f"Memory after cleanup: {memory_mb:.1f} MB")
+        except:
+            pass
+
+
+def reload_model_and_detector(
+    loader: ModelLoader,
+    model_path_config: Optional[str],
+    config: Dict[str, Any],
+    conf_threshold_config: float,
+    iou_threshold_config: float,
+    verbose: bool = False
+) -> Tuple[Any, Detector]:
+    """
+    Reload the model and detector to free up memory.
+    
+    Returns:
+        Tuple of (model, detector)
+    """
+    if verbose:
+        print("\n🔄 Reloading model to free memory...")
+    
+    # Delete old model and detector first
+    # (They will be garbage collected, but we can help by clearing GPU cache)
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+    
+    # Force garbage collection before reloading
+    for _ in range(3):
+        gc.collect()
+    
+    # Load new model
+    try:
+        if model_path_config:
+            model = loader.load_model(local_path=model_path_config)
+        else:
+            # Use model variant from config
+            model_variant = config['model']['model_variant']
+            force_download = config['model']['force_download']
+            model = loader.load_model(
+                model_variant=model_variant,
+                force_download=force_download
+            )
+        
+        # Initialize new detector
+        detector = Detector(
+            model, 
+            conf_threshold=conf_threshold_config,
+            iou_threshold=iou_threshold_config
+        )
+        
+        if verbose:
+            print("✅ Model reloaded successfully!\n")
+        
+        return model, detector
+    except Exception as e:
+        print(f"❌ Error reloading model: {e}")
+        if verbose:
+            traceback.print_exc()
+        raise
+
+
 def main_predict(
     image_path: str,
+    detector: Detector,
     config: Optional[Dict[str, Any]] = None,
-    model_path: Optional[str] = None,
-    conf_threshold: Optional[float] = None,
     imgsz: Optional[int] = None,
     output_dir: Optional[str] = None,
     verbose: Optional[bool] = None
@@ -120,9 +264,8 @@ def main_predict(
     
     Args:
         image_path: Path to the image file to process
+        detector: Pre-initialized Detector instance (reused for all images)
         config: Configuration dictionary (if None, loads from conf_predict.yaml)
-        model_path: Path to local model file (overrides config if provided)
-        conf_threshold: Confidence threshold (overrides config if provided)
         imgsz: Input image size (overrides config if provided)
         output_dir: Output directory (overrides config if provided)
         verbose: Print detailed summaries (overrides config if provided)
@@ -135,12 +278,9 @@ def main_predict(
         config = load_config()
     
     # Use provided values or fall back to config
-    model_path = model_path or config['model']['local_path']
-    conf_threshold = conf_threshold if conf_threshold is not None else config['detection']['confidence_threshold']
     imgsz = imgsz if imgsz is not None else config['detection']['image_size']
     output_dir = output_dir or config['paths']['output_dir']
     verbose = verbose if verbose is not None else config['processing']['verbose']
-    iou_threshold = config['detection']['iou_threshold']
     save_visualization = config['output']['save_visualization']
     
     image_path_obj = Path(image_path)
@@ -157,26 +297,6 @@ def main_predict(
             print(f"Warning: Unsupported image format: {image_path_obj.suffix}")
             return False
         
-        # Load model
-        loader = ModelLoader()
-        if model_path:
-            model = loader.load_model(local_path=model_path)
-        else:
-            # Use model variant from config
-            model_variant = config['model']['model_variant']
-            force_download = config['model']['force_download']
-            model = loader.load_model(
-                model_variant=model_variant,
-                force_download=force_download
-            )
-        
-        # Initialize detector
-        detector = Detector(
-            model, 
-            conf_threshold=conf_threshold,
-            iou_threshold=iou_threshold
-        )
-        
         # Process the image
         if verbose:
             print(f"Processing: {image_path_obj.name}")
@@ -186,6 +306,9 @@ def main_predict(
             imgsz=imgsz,
             save=config['output']['save'],
             save_dir=output_dir,
+            augment=True,
+            visualize=False,
+            device="cuda"
         )
         
         if result:
@@ -196,6 +319,9 @@ def main_predict(
                 print(f"  Number of objects: {summary['num_detections']}")
                 print(f"  Average confidence: {summary['average_confidence']:.3f}")
             
+            # Delete summary immediately after use to free memory
+            del summary
+            
             # Visualize if enabled
             if save_visualization:
                 # Use .tif extension for georeferenced TIF images, .jpg for others
@@ -203,9 +329,34 @@ def main_predict(
                     output_path = Path(output_dir) / f"{image_path_obj.stem}_detections.tif"
                 else:
                     output_path = Path(output_dir) / f"{image_path_obj.stem}_detections.jpg"
-                detector.visualize(image_path_obj, result, output_path)
-                if verbose:
-                    print(f"  Output saved to: {output_path}")
+                try:
+                    annotated_img = detector.visualize(image_path_obj, result, output_path)
+                    if verbose:
+                        print(f"  Output saved to: {output_path}")
+                    # Explicitly delete visualization result to free memory
+                    del annotated_img
+                except Exception as e:
+                    if verbose:
+                        print(f"  Warning: Visualization failed: {e}")
+            
+            # Explicitly delete result object and clear references to free memory
+            if hasattr(result, 'boxes') and result.boxes is not None:
+                # Ensure GPU tensors are moved to CPU before deletion
+                try:
+                    _ = result.boxes.xyxy.cpu()
+                    _ = result.boxes.conf.cpu()
+                    # Clear tensor references
+                    del _
+                except:
+                    pass
+            # Clear all result attributes before deletion
+            if hasattr(result, 'boxes'):
+                del result.boxes
+            if hasattr(result, 'masks'):
+                del result.masks
+            if hasattr(result, 'keypoints'):
+                del result.keypoints
+            del result
         
         if verbose:
             print(f"Successfully processed: {image_path}")
@@ -214,23 +365,32 @@ def main_predict(
     except Exception as e:
         print(f"Error processing {image_path}: {e}")
         if verbose:
-            import traceback
             traceback.print_exc()
         return False
+    finally:
+        # More aggressive cleanup to prevent memory accumulation
+        # Clear GPU cache immediately
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Lightweight garbage collection after each image
+        # This helps prevent gradual memory leaks
+        gc.collect()
 
 
-def process_file(file_path: str, **kwargs) -> bool:
+def process_file(file_path: str, detector: Detector, **kwargs) -> bool:
     """
     Process a single output file using the prediction logic.
     
     Args:
         file_path: Path to the file to process
+        detector: Pre-initialized Detector instance
         **kwargs: Additional arguments passed to main_predict
         
     Returns:
         True if processing was successful, False otherwise
     """
-    return main_predict(file_path, **kwargs)
+    return main_predict(file_path, detector, **kwargs)
 
 
 def main(
@@ -270,7 +430,41 @@ def main(
     output_dir = output_dir or config['paths']['output_dir']
     verbose = verbose if verbose is not None else config['processing']['verbose']
     
-    from src.utils.queue_manager import QueueManager
+    # Load model once and reuse for all images (major performance improvement)
+    if verbose:
+        print("Loading model (this may take a moment)...")
+    
+    loader = ModelLoader()
+    model_path_config = model_path or config['model']['local_path']
+    conf_threshold_config = conf_threshold if conf_threshold is not None else config['detection']['confidence_threshold']
+    iou_threshold_config = config['detection']['iou_threshold']
+    
+    try:
+        if model_path_config:
+            model = loader.load_model(local_path=model_path_config)
+        else:
+            # Use model variant from config
+            model_variant = config['model']['model_variant']
+            force_download = config['model']['force_download']
+            model = loader.load_model(
+                model_variant=model_variant,
+                force_download=force_download
+            )
+        
+        # Initialize detector once and reuse for all images
+        detector = Detector(
+            model, 
+            conf_threshold=conf_threshold_config,
+            iou_threshold=iou_threshold_config
+        )
+        
+        if verbose:
+            print("Model loaded successfully!\n")
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        if verbose:
+            traceback.print_exc()
+        return
     
     # Determine if we should use standalone mode
     use_standalone = standalone_mode if standalone_mode is not None else config['processing']['standalone_mode']
@@ -310,18 +504,25 @@ def main(
                 print(f"\n[{idx}/{len(image_files)}] Processing: {image_path.name}")
                 print("-" * 60)
             
-            success = main_predict(
-                str(image_path),
-                config=config,
-                model_path=model_path,
-                conf_threshold=conf_threshold,
-                imgsz=imgsz,
-                output_dir=output_dir,
-                verbose=verbose
-            )
-            
-            if not success:
-                print(f"Failed to process: {image_path}")
+            try:
+                success = main_predict(
+                    str(image_path),
+                    detector=detector,
+                    config=config,
+                    imgsz=imgsz,
+                    output_dir=output_dir,
+                    verbose=verbose
+                )
+                
+                if not success:
+                    print(f"Failed to process: {image_path}")
+                    if not continue_on_error:
+                        print("Stopping due to error (continue_on_error=False)")
+                        break
+            except Exception as e:
+                print(f"Error processing {image_path}: {e}")
+                if verbose:
+                    traceback.print_exc()
                 if not continue_on_error:
                     print("Stopping due to error (continue_on_error=False)")
                     break
@@ -343,12 +544,113 @@ def main(
         print("Press Ctrl+C to stop\n")
     
     try:
+        processed_count = 0
+        cleanup_interval = config.get('memory', {}).get('cleanup_interval', 5)
+        force_cleanup_interval = config.get('memory', {}).get('force_cleanup_interval', 20)
+        pause_on_high_memory = config.get('memory', {}).get('pause_on_high_memory', True)
+        pause_duration = config.get('memory', {}).get('pause_duration', 10.0)
+        reload_model_on_high_memory = config.get('memory', {}).get('reload_model_on_high_memory', True)
+        reload_model_threshold_gb = config.get('memory', {}).get('reload_model_threshold_gb', 12.0)
+        reload_model_threshold_percent = config.get('memory', {}).get('reload_model_threshold_percent', 75.0)
+        last_reload_count = 0  # Track when we last reloaded to avoid reloading too frequently
+        
         while True:
+            # Check memory usage before processing
+            if pause_on_high_memory:
+                should_pause, memory_msg = check_memory_usage(config)
+                
+                # Check if we should reload the model instead of just pausing
+                should_reload = False
+                if reload_model_on_high_memory:
+                    try:
+                        process = psutil.Process()
+                        memory_info = process.memory_info()
+                        memory_gb = memory_info.rss / (1024 * 1024 * 1024)
+                        system_memory = psutil.virtual_memory()
+                        memory_percent = system_memory.percent
+                        
+                        # Only reload if we've processed at least 10 images since last reload
+                        # This prevents reloading too frequently
+                        if (processed_count - last_reload_count) >= 10:
+                            if memory_gb > reload_model_threshold_gb or memory_percent > reload_model_threshold_percent:
+                                should_reload = True
+                                if verbose:
+                                    print(f"\n🔄 High memory detected ({memory_gb:.2f} GB, {memory_percent:.1f}%) - reloading model...")
+                    except:
+                        pass
+                
+                if should_reload:
+                    # Reload model to free memory
+                    try:
+                        # Force cleanup before reloading
+                        aggressive_memory_cleanup(verbose=verbose)
+                        
+                        # Reload model and detector (this creates new instances)
+                        new_model, new_detector = reload_model_and_detector(
+                            loader=loader,
+                            model_path_config=model_path_config,
+                            config=config,
+                            conf_threshold_config=conf_threshold_config,
+                            iou_threshold_config=iou_threshold_config,
+                            verbose=verbose
+                        )
+                        
+                        # Only delete old model/detector after successful reload
+                        old_detector = detector
+                        old_model = model
+                        detector = new_detector
+                        model = new_model
+                        del old_detector
+                        del old_model
+                        
+                        # Force cleanup after deleting old model
+                        aggressive_memory_cleanup(verbose=verbose)
+                        
+                        last_reload_count = processed_count
+                        
+                        # Check memory after reload
+                        try:
+                            process = psutil.Process()
+                            memory_info = process.memory_info()
+                            memory_gb = memory_info.rss / (1024 * 1024 * 1024)
+                            system_memory = psutil.virtual_memory()
+                            if verbose:
+                                print(f"Memory after reload: {memory_gb:.2f} GB (process), {system_memory.percent:.1f}% (system)\n")
+                        except:
+                            pass
+                    except Exception as e:
+                        print(f"❌ Failed to reload model: {e}")
+                        if verbose:
+                            traceback.print_exc()
+                        # Continue with existing model if reload fails
+                        print("⚠️  Continuing with existing model. Memory may remain high.\n")
+                elif should_pause:
+                    if verbose:
+                        print(f"\n⚠️  High memory usage detected: {memory_msg}")
+                        print(f"Pausing for {pause_duration} seconds to allow memory to free up...")
+                    time.sleep(pause_duration)
+                    # Force aggressive cleanup before continuing
+                    aggressive_memory_cleanup(verbose=verbose)
+                    # Check again after cleanup
+                    should_pause, memory_msg = check_memory_usage(config)
+                    if should_pause:
+                        if verbose:
+                            print(f"⚠️  Memory still high after cleanup: {memory_msg}")
+                            print("Continuing anyway, but monitoring closely...\n")
+            
             # Get next pending file
             file_path = queue_manager.get_next_pending()
             
             if file_path is None:
                 # No pending files, wait and check again
+                # Aggressive cleanup when idle to free up memory
+                if processed_count > 0:
+                    if processed_count % force_cleanup_interval == 0:
+                        aggressive_memory_cleanup(verbose=verbose)
+                    elif torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    # Force garbage collection when idle to prevent accumulation
+                    gc.collect()
                 time.sleep(poll_interval)
                 continue
             
@@ -360,13 +662,14 @@ def main(
             # Process the file using prediction logic
             success = main_predict(
                 file_path,
+                detector=detector,
                 config=config,
-                model_path=model_path,
-                conf_threshold=conf_threshold,
                 imgsz=imgsz,
                 output_dir=output_dir,
                 verbose=verbose
             )
+            
+            processed_count += 1
             
             if success:
                 # Mark as completed and remove from queue
@@ -391,26 +694,54 @@ def main(
                     # Leave it as processing so it won't be picked up again
                     # Note: This will block the file from being processed by other consumers
             
+            # Clear file_path reference after all operations to free memory
+            # (it's no longer needed after this point)
+            del file_path
+            
+            # More frequent memory cleanup to prevent accumulation
+            if processed_count % cleanup_interval == 0:
+                # Lightweight cleanup every N images
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            
+            # Aggressive cleanup every N images
+            if processed_count % force_cleanup_interval == 0:
+                if verbose:
+                    print(f"Performing aggressive memory cleanup (processed {processed_count} images)...")
+                aggressive_memory_cleanup(verbose=verbose)
+                
+                # Log memory usage if available
+                if verbose:
+                    try:
+                        process = psutil.Process()
+                        memory_mb = process.memory_info().rss / (1024 * 1024)
+                        memory_gb = memory_mb / 1024
+                        system_memory = psutil.virtual_memory()
+                        print(f"Current memory: {memory_gb:.2f} GB (process), {system_memory.percent:.1f}% (system)\n")
+                    except:
+                        pass
+            
     except KeyboardInterrupt:
         if verbose:
             print("\nConsumer stopped by user")
     except Exception as e:
         print(f"Error in consumer: {e}")
         if verbose:
-            import traceback
             traceback.print_exc()
     finally:
         if cleanup_on_exit:
             if verbose:
                 print("Cleaning up missing file entries...")
             queue_manager.cleanup_missing_files()
+        # Ensure queue manager connection is closed
+        if hasattr(queue_manager, '_close_connection'):
+            queue_manager._close_connection()
         if verbose:
             print("Consumer exited")
 
 
 if __name__ == "__main__":
-    import argparse
-    
     parser = argparse.ArgumentParser(
         description="Consumer program for processing outputs with object detection",
         formatter_class=argparse.RawDescriptionHelpFormatter,

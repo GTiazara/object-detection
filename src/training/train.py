@@ -162,9 +162,11 @@ def main():
             'hsv_v': 0.5,
             'degrees': 180,
             'translate': 0.25,
-            'scale': 0.5,
+            'scale': 0.5, 
             'fliplr': 0.5,
-            'mosaic': 0,
+            'mosaic': 0.3,
+            'mixup': 0.5,
+            'cutmix': 0.5,
         }
     
     # Add optional training parameters
